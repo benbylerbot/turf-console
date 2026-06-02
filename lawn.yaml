@@ -1,0 +1,125 @@
+# ============================================================
+#  lawn.yaml  —  YOUR LAWN PROGRAM
+#  This is the file you edit. The code just reads it.
+#  Editable from the GitHub website on your phone or iPad (pencil icon -> commit).
+#  Comments (# lines) are safe — the Log button never touches this file.
+# ============================================================
+
+location:
+  name: "Lee's Summit, MO"
+  lat: 38.9108          # town centroid, not your address (kept vague on purpose)
+  lon: -94.3822
+
+lawn:
+  grass: "tall fescue"
+  zone: 6
+  turf_area_sqft: 8000  # drives the "how much to apply / how many bags to buy" math
+  mow_height_in: 4
+  last_mowed_fallback: "2026-05-26"   # only used if you've never logged a mow
+
+irrigation:
+  weekly_target_in: 1.1      # reference; the ET math drives the actual number
+  crop_coefficient: 0.8      # turf water use = this x reference ET0
+  rootzone_hold_in: 0.45     # rain surplus the soil banks for later
+  sprinkler_rate_in_per_hr: 0  # set to your real rate (e.g. 0.8) for minutes per zone
+
+supply:
+  retailer: "Grass Pad"
+  lead_time_days: 6
+
+equipment:
+  - "John Deere Z345M mower"
+  - "Ego string trimmer / edger / blower"
+  - "Ego 4-gal backpack sprayer"
+  - "Echo RB60 broadcast spreader"
+  - "Agri-Fab pull-behind core aerator"
+  - "Sun Joe dethatcher"
+  - "leveling rake + drum spreader"
+
+# ---- PRODUCTS & RATES -------------------------------------------------------
+# Granular products — give:
+#   rate_amount : number (e.g. 3.0)
+#   rate_unit   : "lb" (or "oz")
+#   per_sqft    : area that rate covers (usually 1000)
+#   bag_size    : (optional) one bag's size in the same unit -> tells you bags to buy
+# Liquids / "per label" products — skip the numbers and use:
+#   rate_note   : "per label — spot spray", etc.
+# The brief multiplies your rate by turf_area_sqft for TOTAL product + bags to buy.
+# >>> Amounts below are reasonable starters. REPLACE with your real label rates. <<<
+products:
+  - name: "Crabgrass pre-emergent"
+    tool: "Echo RB60 spreader"
+    rate_amount: 3.0          # REPLACE with your bag's label rate
+    rate_unit: "lb"
+    per_sqft: 1000
+    bag_size: 25
+  - name: "Spring/fall fertilizer"
+    tool: "Echo RB60 spreader"
+    rate_amount: 4.0          # REPLACE — lb of product per 1000 (depends on N analysis)
+    rate_unit: "lb"
+    per_sqft: 1000
+    bag_size: 50
+  - name: "Broadleaf weed killer (liquid)"
+    tool: "Ego 4-gal backpack sprayer"
+    rate_note: "per label — spot spray, mix in the 4-gal tank"
+  - name: "Brown-patch fungicide (granular)"
+    tool: "Echo RB60 spreader"
+    rate_amount: 4.0          # REPLACE — e.g. Scotts DiseaseEx ~2-4 lb/1000
+    rate_unit: "lb"
+    per_sqft: 1000
+    bag_size: 10
+  - name: "Tall fescue seed (turf-type blend)"
+    tool: "Echo RB60 spreader"
+    rate_amount: 7.0          # 6-8 lb/1000 for overseed
+    rate_unit: "lb"
+    per_sqft: 1000
+    bag_size: 50
+  - name: "Starter fertilizer (high P)"
+    tool: "Echo RB60 spreader"
+    rate_amount: 4.0          # REPLACE
+    rate_unit: "lb"
+    per_sqft: 1000
+    bag_size: 50
+
+# ---- SEASONAL SCHEDULE ------------------------------------------------------
+# Dates are [month, day]. Each task is a plain line. Add/remove/retime freely.
+schedule:
+  - window: "Spring Pre-Emergent + Early Feed"
+    start: [3, 15]
+    end:   [4, 15]
+    tasks:
+      - "Crabgrass pre-emergent — Echo RB60 spreader"
+      - "Early-spring fertilizer — Echo RB60 spreader"
+  - window: "Late-Spring Broadleaf Control"
+    start: [4, 25]
+    end:   [5, 25]
+    tasks:
+      - "Spot-spray broadleaf weeds — Ego backpack sprayer"
+      - "Light balanced feed — Echo RB60 spreader"
+  - window: "Summer Survival"
+    start: [6, 1]
+    end:   [8, 20]
+    tasks:
+      - "Preventative fungicide if brown-patch history — Ego sprayer"
+      - "Spot broadleaf on cool days only — Ego sprayer"
+      - "Mow high at 4 in — Z345M"
+  - window: "Fall Renovation — the big one"
+    start: [8, 25]
+    end:   [9, 20]
+    tasks:
+      - "Dethatch if needed — Sun Joe"
+      - "Core aerate — Agri-Fab pull-behind"
+      - "Overseed tall fescue — Echo RB60 spreader"
+      - "Starter fertilizer — Echo RB60 spreader"
+      - "Topdress / level low spots — leveling rake + drum spreader"
+  - window: "Fall Feedings"
+    start: [9, 15]
+    end:   [11, 1]
+    tasks:
+      - "Fall nitrogen (Sept + Oct) — Echo RB60 spreader"
+      - "Broadleaf control returns on cool days — Ego sprayer"
+  - window: "Late-Fall Winterizer"
+    start: [11, 1]
+    end:   [11, 30]
+    tasks:
+      - "High-K winterizer feed — Echo RB60 spreader"

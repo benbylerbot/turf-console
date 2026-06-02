@@ -1,0 +1,13 @@
+# log.yaml — your action history and the issues you're watching.
+# This file is auto-appended by the "Log a Lawn Action" button (and you can edit it too).
+# Mowing dates here automatically drive the "best mow day" logic.
+
+log:
+  - date: "2026-05-26"
+    type: "Mowed"
+    detail: ""
+
+observations:
+  - date: "2026-05-28"
+    note: "Thin patch by the driveway — watching it"
+    status: "open"
