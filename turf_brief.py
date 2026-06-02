@@ -262,6 +262,12 @@ def text_brief(m, cfg, windows, observations, recurring=[]):
         L.append("\n[WATCHING]")
         for o in observations[:4]:
             L.append(f"           \u2022 {o.get('note','')} (since {o.get('date','')})")
+    now_wins = [(w, date(yr,*w["start"]), date(yr,*w["end"]))
+                for w in windows if date(yr,*w["start"]) <= date.today() <= date(yr,*w["end"])]
+    if now_wins:
+        for w, wst, wen in now_wins:
+            L.append(f"\n[NOW]    {w['window']} ({wst:%b %-d}\u2013{wen:%b %-d})")
+            for t in w["tasks"]: L.append(f"             \u2022 {t}")
     if nxt:
         L.append(f"\n[NEXT]   {nxt['window']} ({date(yr,*nxt['start']):%b %-d}\u2013{date(yr,*nxt['end']):%b %-d}) \u2014 stock by {buy_by:%a %b %-d}:")
         for t in nxt["tasks"]: L.append(f"             \u2022 {t}")
