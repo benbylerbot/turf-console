@@ -1,0 +1,77 @@
+name: Log a Lawn Action
+ 
+# A phone-friendly form. GitHub app -> Actions -> this workflow -> "Run workflow".
+# Pick what you did (or an issue you saw), type a detail, submit.
+# It appends to log.yaml and commits — which also keeps your weekly schedule alive.
+ 
+on:
+  workflow_dispatch:
+    inputs:
+      type:
+        description: "What happened?"
+        type: choice
+        required: true
+        options:
+          - Mowed
+          - Fertilizer
+          - Pre-emergent
+          - Broadleaf spray
+          - Fungicide
+          - Seed / overseed
+          - Aerated
+          - Dethatched
+          - Watered
+          - Observation / issue
+          - Close an issue
+          - Other
+      detail:
+        description: "Details (product, rate, where, what you saw)"
+        type: string
+        required: false
+ 
+permissions:
+  contents: write
+ 
+jobs:
+  log:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install pyyaml
+      - name: Append to log.yaml
+        env:
+          LOG_TYPE: ${{ inputs.type }}
+          LOG_DETAIL: ${{ inputs.detail }}
+        run: |
+          python - << 'PY'
+          import os, yaml, datetime
+          path = "log.yaml"
+          data = yaml.safe_load(open(path)) if os.path.exists(path) else {}
+          data = data or {}
+          data.setdefault("log", []); data.setdefault("observations", [])
+          today = datetime.date.today().isoformat()
+          t = os.environ["LOG_TYPE"]; d = os.environ.get("LOG_DETAIL", "").strip()
+          if t == "Observation / issue":
+              data["observations"].append({"date": today, "note": d, "status": "open"})
+          elif t == "Close an issue":
+              closed = False
+              for o in data["observations"]:
+                  if o.get("status") == "open" and (not d or d.lower() in o.get("note","").lower()):
+                      o["status"] = "closed"; closed = True
+                      if d.lower() in o.get("note","").lower(): break
+              if not closed: print("No matching open issue found.")
+          else:
+              data["log"].append({"date": today, "type": t, "detail": d})
+          yaml.safe_dump(data, open(path, "w"), sort_keys=False, allow_unicode=True)
+          print("logged:", t, "|", d)
+          PY
+      - name: Commit
+        run: |
+          git config user.name "turf-bot"
+          git config user.email "turf-bot@users.noreply.github.com"
+          git add log.yaml
+          git commit -m "log: ${{ inputs.type }}" || echo "nothing to commit"
+          git push
