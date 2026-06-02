@@ -68,12 +68,12 @@ products:
     rate_unit: "lb"
     per_sqft: 1000
     bag_size: 10
-  - name: "Tall fescue seed (turf-type blend)"
-    tool: "Echo RB60 spreader"
-    rate_amount: 7.0          # 6-8 lb/1000 for overseed
+  - name: "Apex Blue tall fescue seed"
+    tool: "slip seeder (rental)"
+    rate_amount: 6.0          # 5-6 lb/1000 for slip seeder (better soil contact than broadcast)
     rate_unit: "lb"
     per_sqft: 1000
-    bag_size: 50
+    bag_size: 25
   - name: "Starter fertilizer (high P)"
     tool: "Echo RB60 spreader"
     rate_amount: 4.0          # REPLACE
@@ -96,6 +96,15 @@ schedule:
     tasks:
       - "Spot-spray broadleaf weeds — Ego backpack sprayer"
       - "Light balanced feed — Echo RB60 spreader"
+  - window: "Light Leveling"
+    start: [6, 1]
+    end:   [6, 15]
+    tasks:
+      - "Identify low spots — probe after rain or watch for puddles"
+      - "Apply ¼–½ inch compost topdress over low areas — drum spreader + leveling rake"
+      - "Drag in so grass tips are still visible above the compost"
+      - "Pick a mild day (<88°F) with no heavy rain forecast for 24h after"
+      - "Water lightly after to help compost settle into the turf"
   - window: "Summer Survival"
     start: [6, 1]
     end:   [8, 20]
@@ -103,15 +112,17 @@ schedule:
       - "Preventative fungicide if brown-patch history — Ego sprayer"
       - "Spot broadleaf on cool days only — Ego sprayer"
       - "Mow high at 4 in — Z345M"
-  - window: "Fall Renovation — the big one"
+  - window: "Fall Renovation — Slip Seed"
     start: [8, 25]
     end:   [9, 20]
     tasks:
-      - "Dethatch if needed — Sun Joe"
-      - "Core aerate — Agri-Fab pull-behind"
-      - "Overseed tall fescue — Echo RB60 spreader"
-      - "Starter fertilizer — Echo RB60 spreader"
-      - "Topdress / level low spots — leveling rake + drum spreader"
+      - "Dethatch if thatch > ½ inch — Sun Joe dethatcher"
+      - "Rent slip seeder (slit seeder) from equipment rental"
+      - "Seed Apex Blue tall fescue — slip seeder, 2 perpendicular passes"
+      - "Starter fertilizer (high P, NO pre-emergent blend) — Echo RB60 spreader"
+      - "Compost/topsoil topdress — drum spreader + leveling rake"
+      - "Water lightly 2x daily until germination (~10-14 days), then switch to deep/infrequent"
+      - "Do NOT apply pre-emergent while new seed is establishing"
   - window: "Fall Feedings"
     start: [9, 15]
     end:   [11, 1]
