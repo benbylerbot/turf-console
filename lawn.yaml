@@ -141,7 +141,7 @@ recurring_products:
   - name: "Pramaxis MEC (PGR)"
     product: "Atticus Pramaxis MEC"
     tool: "Ego 4-gal backpack sprayer"
-    rate: "0.8 oz / 1,000 sqft (6.4 oz total for your 8k sqft)"
+    rate: "0.8 oz / 1,000 sqft (7.44 oz total for your 9.3k sqft)"
     interval_days: 28
     last_applied: "2026-05-25"
     season_end: "2026-09-07"     # stop 3 weeks before fall renovation (Aug 25)
