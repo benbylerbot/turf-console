@@ -4,29 +4,29 @@
 #  Editable from the GitHub website on your phone or iPad (pencil icon -> commit).
 #  Comments (# lines) are safe — the Log button never touches this file.
 # ============================================================
- 
+
 location:
   name: "Lee's Summit, MO"
   lat: 38.9108          # town centroid, not your address (kept vague on purpose)
   lon: -94.3822
- 
+
 lawn:
   grass: "tall fescue"
   zone: 6
-  turf_area_sqft: 8000  # drives the "how much to apply / how many bags to buy" math
+  turf_area_sqft: 9300  # drives the "how much to apply / how many bags to buy" math
   mow_height_in: 4
   last_mowed_fallback: "2026-05-26"   # only used if you've never logged a mow
- 
+
 irrigation:
   weekly_target_in: 1.1      # reference; the ET math drives the actual number
   crop_coefficient: 0.8      # turf water use = this x reference ET0
   rootzone_hold_in: 0.45     # rain surplus the soil banks for later
   sprinkler_rate_in_per_hr: 0  # set to your real rate (e.g. 0.8) for minutes per zone
- 
+
 supply:
   retailer: "Grass Pad"
   lead_time_days: 6
- 
+
 equipment:
   - "John Deere Z345M mower"
   - "Ego string trimmer / edger / blower"
@@ -35,7 +35,7 @@ equipment:
   - "Agri-Fab pull-behind core aerator"
   - "Sun Joe dethatcher"
   - "leveling rake + drum spreader"
- 
+
 # ---- PRODUCTS & RATES -------------------------------------------------------
 # Granular products — give:
 #   rate_amount : number (e.g. 3.0)
@@ -80,7 +80,7 @@ products:
     rate_unit: "lb"
     per_sqft: 1000
     bag_size: 50
- 
+
 # ---- SEASONAL SCHEDULE ------------------------------------------------------
 # Dates are [month, day]. Each task is a plain line. Add/remove/retime freely.
 schedule:
@@ -123,7 +123,7 @@ schedule:
     end:   [11, 30]
     tasks:
       - "High-K winterizer feed — Echo RB60 spreader"
- 
+
 # ---- RECURRING APPLICATIONS -------------------------------------------------
 # Products applied on a set interval. The brief auto-calculates your next
 # application dates from last_applied + interval_days.
@@ -136,7 +136,7 @@ schedule:
 #   max_applications : max apps per season (optional, per label)
 #   skip_note     : condition warning shown in the brief
 #   rate          : displayed as reference (not calculated — use backpack sprayer)
- 
+
 recurring_products:
   - name: "Pramaxis MEC (PGR)"
     product: "Atticus Pramaxis MEC"
@@ -147,7 +147,7 @@ recurring_products:
     season_end: "2026-09-07"     # stop 3 weeks before fall renovation (Aug 25)
     notes: "Label max: 7.0 oz/1,000 sqft/year. At 0.8 oz/app you have room for ~8 apps."
     skip_note: "Skip or reduce rate if temps >90°F and grass shows heat stress"
- 
+
   - name: "Propiconazole 14.3 (Fungicide)"
     product: "Select Source Propiconazole 14.3"
     tool: "Ego 4-gal backpack sprayer"
@@ -156,7 +156,7 @@ recurring_products:
     last_applied: ""             # SET THIS when you first apply — or log with button
     season_end: "2026-09-15"
     skip_note: "Tighten to 14-day interval when brown-patch risk is High"
- 
+
   - name: "Torocity (Mesotrione herbicide)"
     product: "Atticus Torocity"
     tool: "Ego 4-gal backpack sprayer"
@@ -165,7 +165,7 @@ recurring_products:
     last_applied: ""             # SET THIS when you first apply
     max_applications: 3
     skip_note: "Apply only when temps <85°F — early morning on your coolest forecast day. Activate with 0.15 in irrigation if no rain within 10 days."
- 
+
   - name: "FAS / Iron (TBD)"
     product: "TBD — update when you choose a product"
     tool: "Ego 4-gal backpack sprayer"
@@ -173,4 +173,3 @@ recurring_products:
     interval_days: 28
     last_applied: ""
     skip_note: ""
- 
