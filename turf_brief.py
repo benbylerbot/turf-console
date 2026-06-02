@@ -55,7 +55,8 @@ def load_program():
     windows = prog.get("schedule", [])
     products = prog.get("products", [])
     observations = [o for o in logd.get("observations", []) if str(o.get("status", "open")).lower() == "open"]
-    return cfg, windows, products, observations, logd.get("log", [])
+    recurring = prog.get("recurring_products", [])
+    return cfg, windows, products, observations, logd.get("log", []), recurring
 
 # ============================== WEATHER FETCH ==============================
 def fetch_forecast(cfg):
@@ -231,7 +232,7 @@ def calendar_view(cfg, windows):
     return active, nxt, yr, nstart - timedelta(days=cfg["lead_time_days"])
 
 # ============================== TEXT BRIEF ==============================
-def text_brief(m, cfg, windows, observations):
+def text_brief(m, cfg, windows, observations, recurring=[]):
     active, nxt, yr, buy_by = calendar_view(cfg, windows)
     L = ["=" * 54, f"  TURF CONSOLE  ·  {cfg['location_name']}",
          f"  Week of {date.today():%b %-d}  ·  generated {datetime.now():%a %-I:%M %p}", "=" * 54]
@@ -257,9 +258,84 @@ def text_brief(m, cfg, windows, observations):
     if nxt:
         L.append(f"\n[NEXT]   {nxt['window']} ({date(yr,*nxt['start']):%b %-d}\u2013{date(yr,*nxt['end']):%b %-d}) \u2014 stock by {buy_by:%a %b %-d}:")
         for t in nxt["tasks"]: L.append(f"             \u2022 {t}")
+    if recurring:
+        today_r = date.today()
+        due_soon, not_started_r = [], []
+        for p in recurring:
+            last = p.get("last_applied", ""); iv = p.get("interval_days", 28)
+            if not last:
+                not_started_r.append(p.get("name", ""))
+            else:
+                try:
+                    nd = datetime.strptime(last, "%Y-%m-%d").date() + timedelta(days=iv)
+                    if (nd - today_r).days <= 14:
+                        due_soon.append((p.get("name",""), nd, (nd-today_r).days))
+                except Exception: pass
+        if not_started_r or due_soon:
+            L.append("\n[RECURRING]")
+            for n in not_started_r:
+                L.append(f"           ! {n} \u2014 not yet started this season")
+            for n, nd, dd in due_soon:
+                s = "OVERDUE" if dd < 0 else f"in {dd}d"
+                L.append(f"           \u203a {n} \u2014 due {nd:%b %-d} ({s})")
     L.append("\n[7-DAY]  " + "  ".join(f"{f['dow']} {f['tmax']}/{f['tmin']}\u00b0 {f['rain']:.2f}\u2033" for f in m["fc"]))
     L.append("=" * 54)
     return "\n".join(L)
+
+# ============================== RECURRING APPLICATIONS HTML ==============================
+def build_recurring_html(recurring, fc):
+    if not recurring: return ""
+    today = date.today()
+    max_fc_temp = max((f["tmax"] for f in fc if f["tmax"]), default=80)
+    rows = []
+    for p in recurring:
+        name = p.get("name",""); tool = p.get("tool",""); rate = p.get("rate","")
+        interval = p.get("interval_days", 28); last = p.get("last_applied","")
+        season_end = p.get("season_end",""); max_apps = p.get("max_applications")
+        skip_note = p.get("skip_note","")
+        upcoming = []
+        if last:
+            try:
+                last_d = datetime.strptime(last, "%Y-%m-%d").date()
+                for k in range(1, 6):
+                    nd = last_d + timedelta(days=interval * k)
+                    if season_end and nd > datetime.strptime(season_end, "%Y-%m-%d").date(): break
+                    if max_apps and k > max_apps: break
+                    upcoming.append(nd)
+            except ValueError: pass
+        next_due = upcoming[0] if upcoming else None
+        days_until = (next_due - today).days if next_due else None
+        if not last:
+            urg = "var(--amber)"; next_label = "Not yet applied this season"
+        elif next_due is None:
+            urg = "var(--ink-soft)"; next_label = "Season complete"
+        elif days_until <= 0:
+            urg = "var(--terra)"; next_label = f"OVERDUE by {abs(days_until)}d"
+        elif days_until <= 7:
+            urg = "var(--amber)"; next_label = f"{next_due:%b %-d} \u2014 in {days_until}d"
+        else:
+            urg = "var(--moss)"; next_label = f"{next_due:%b %-d} \u2014 in {days_until}d"
+        warn_html = ""
+        if skip_note:
+            if ("90" in skip_note or "stress" in skip_note.lower()) and max_fc_temp >= 90:
+                warn_html = f'<div style="font-size:11px;color:var(--amber);margin-top:4px">\u26a0 {max_fc_temp}\u00b0F forecast \u2014 skip or reduce rate if lawn looks stressed.</div>'
+            elif "85" in skip_note and 85 <= max_fc_temp < 90:
+                warn_html = f'<div style="font-size:11px;color:var(--amber);margin-top:4px">\u26a0 {max_fc_temp}\u00b0F forecast \u2014 apply early morning on coolest day.</div>'
+        following = " \u2192 ".join(d.strftime("%b %-d") for d in upcoming[1:3]) if len(upcoming) > 1 else ""
+        last_html = (f'<span>Last: {last}</span>' if last
+                     else '<span style="color:var(--amber)">Set last_applied in lawn.yaml or use Log button when you first apply.</span>')
+        rows.append(
+            f'<div style="padding:11px 0;border-bottom:1px dashed var(--line)">'
+            f'<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap">'
+            f'<span style="font-weight:600;color:var(--forest);font-size:14px">{name}</span>'
+            f'<span style="font-family:\'Spline Sans Mono\',monospace;font-size:13px;font-weight:600;color:{urg}">{next_label}</span></div>'
+            f'<div style="font-size:11px;color:var(--ink-soft);margin-top:3px">{tool} \u00b7 {rate} \u00b7 every {interval}d</div>'
+            f'<div style="font-size:11px;color:var(--ink-soft);margin-top:2px">{last_html}'
+            f'{(" \u2192 " + following) if following else ""}</div>'
+            f'{warn_html}</div>')
+    return (f'<div class="card"><h2>\U0001F501 Recurring Applications</h2>'
+            f'<div class="sub">Anchored to your last applied date. Use the Log button after each application to keep dates current.</div>'
+            f'{"".join(rows)}</div>')
 
 # ============================== HTML ==============================
 CSS = r"""
@@ -302,8 +378,7 @@ h1 em{font-style:italic;font-weight:500;color:var(--lime)}
 footer{text-align:center;font-size:11px;color:var(--ink-soft);margin-top:24px;line-height:1.6}a{color:var(--moss)}
 """
 
-def render_html(m, cfg, windows, prod_rows, observations):
-    active, nxt, yr, buy_by = calendar_view(cfg, windows)
+def render_html(m, cfg, windows, prod_rows, observations, recurring=[]):
     today = date.today(); wk_end = today + timedelta(days=6); irr = m["irrigate"]
     irr_line = ("Skip the sprinklers. Rain + soil reserves cover the week." if irr <= 0 else
                 f"Run about <b>{irr}\u2033</b> total" +
@@ -345,16 +420,59 @@ def render_html(m, cfg, windows, prod_rows, observations):
         rows = "".join(f"""<div class="obs"><span class="od">{o.get('date','')}</span><span>{o.get('note','')}</span></div>""" for o in observations)
         obs_card = f"""<div class="card"><h2>\U0001F50D Watching</h2><div class="sub">Open issues from your log.</div>{rows}</div>"""
 
-    items = "".join(f"""<li><span>\u203a</span><span>{t}</span></li>""" for t in (nxt["tasks"] if nxt else []))
-    win_html = ("" if not nxt else
-                f"""<div class="winnow"><div class="wt">{nxt['window']}</div>"""
-                f"""<div class="wd">{date(yr,*nxt['start']):%b %-d} \u2013 {date(yr,*nxt['end']):%b %-d}</div>"""
-                f"""<ul>{items}</ul><div class="buyby">\U0001F6D2 Stock up by {buy_by:%a %b %-d} <span style="opacity:.7">({cfg['lead_time_days']}d {cfg['retailer']} buffer)</span></div></div>""")
+    # Build full-year schedule card
+    sched_parts = []
+    s_now = date.today(); s_y = s_now.year
+    s_rows = []
+    for w in windows:
+        st, en = date(s_y, *w["start"]), date(s_y, *w["end"])
+        status = "past" if s_now > en else ("active" if st <= s_now <= en else "upcoming")
+        s_rows.append((w, status, st, en))
+    def bb(st): return (st - timedelta(days=cfg["lead_time_days"])).strftime("%b %-d")
+    def tasklist(w, color):
+        return "".join(f'<li style="list-style:none;padding:3px 0;font-size:13px;color:var(--ink-soft)">'
+                       f'<span style="color:{color};margin-right:7px">\u203a</span>{t}</li>' for t in w["tasks"])
+    for w, status, st, en in s_rows:
+        if status == "active":
+            sched_parts.append(
+                f'<div style="border-left:3px solid var(--lime-bright);padding:6px 0 6px 14px;margin-bottom:14px">'
+                f'<div style="font-size:10px;font-family:\'Spline Sans Mono\',monospace;letter-spacing:.14em;'
+                f'text-transform:uppercase;color:var(--lime);margin-bottom:4px">Active now</div>'
+                f'<div style="font-family:\'Fraunces\',serif;font-size:18px;font-weight:600;color:var(--forest)">{w["window"]}</div>'
+                f'<div style="font-size:11px;color:var(--moss);margin-bottom:8px">{st:%b %-d} \u2013 {en:%b %-d}</div>'
+                f'<ul style="padding:0;margin:0">{tasklist(w,"var(--lime)")}</ul></div>')
+    for i, (w, status, st, en) in enumerate([(r[0],r[1],r[2],r[3]) for r in s_rows if r[1]=="upcoming"]):
+        buy_label = bb(st)
+        if i == 0:
+            sched_parts.append(
+                f'<div style="border-left:3px solid var(--line);padding:4px 0 6px 14px;margin-bottom:10px">'
+                f'<div style="font-size:10px;font-family:\'Spline Sans Mono\',monospace;color:var(--ink-soft);'
+                f'margin-bottom:4px">Next up \u2014 stock by {buy_label}</div>'
+                f'<div style="font-family:\'Fraunces\',serif;font-size:16px;font-weight:600;color:var(--forest)">{w["window"]}</div>'
+                f'<div style="font-size:11px;color:var(--moss);margin-bottom:6px">{st:%b %-d} \u2013 {en:%b %-d}</div>'
+                f'<ul style="padding:0;margin:0">{tasklist(w,"var(--moss)")}</ul>'
+                f'<div class="buyby" style="margin-top:8px">\U0001F6D2 Stock up by {buy_label} '
+                f'<span style="opacity:.7">({cfg["lead_time_days"]}d {cfg["retailer"]})</span></div></div>')
+        else:
+            sched_parts.append(
+                f'<div style="display:flex;justify-content:space-between;align-items:baseline;'
+                f'padding:7px 0;border-top:1px dashed var(--line);font-size:13px">'
+                f'<span><b style="color:var(--forest)">{w["window"]}</b> '
+                f'<span style="color:var(--ink-soft);font-size:11px">{st:%b %-d}\u2013{en:%b %-d}</span></span>'
+                f'<span style="font-size:11px;color:var(--moss);white-space:nowrap">stock by {buy_label}</span></div>')
+    past = [w for w, status, st, en in s_rows if status == "past"]
+    if past:
+        names = " \u00b7 ".join(f'<span style="text-decoration:line-through;opacity:.35">{w["window"]}</span>' for w in past)
+        sched_parts.append(f'<div style="font-size:11px;color:var(--ink-soft);border-top:1px dashed var(--line);'
+                           f'padding-top:8px;margin-top:6px">Done this year: {names}</div>')
+    sched_html = f'<div class="card"><h2>\U0001F4CB Your Schedule</h2>{"".join(sched_parts)}</div>'
 
     rate_rows = "".join(f"""<div class="rate"><span class="rn">{r['name']}<br><span style="font-size:11px;color:var(--moss)">{r['tool']}</span></span>"""
                         f"""<span class="rt">{('<b>'+r['total']+'</b>') if r['total'] else ''}{r['rate']}</span></div>""" for r in prod_rows)
     rate_card = (f"""<div class="card"><h2>\U0001F9EA How Much to Apply <span class="tag">{int(cfg['turf_area_sqft']):,} sqft</span></h2>"""
                  f"""<div class="sub">Rate × your yard = total to put down (and bags to buy). Edit rates in lawn.yaml.</div>{rate_rows}</div>""") if prod_rows else ""
+
+    recurring_card = build_recurring_html(recurring, m["fc"])
 
     soil = m["soil"]
     body = f"""
@@ -387,8 +505,9 @@ def render_html(m, cfg, windows, prod_rows, observations):
     <div class="card"><h2>\U0001F344 Brown-Patch Pressure</h2><div class="sub">Warm nights (>65\u00b0) + humid air. Your #1 fescue threat in a KC summer.</div>
     {drows}<div class="sub" style="margin-top:12px">When risk climbs: water before dawn, never evening, ease off nitrogen, bag clippings if you spot circular tan patches.</div></div>
 
-    <div class="card"><h2>\U0001F4CB Next Up <span class="tag">your schedule</span></h2>
-    <div class="sub">{('Active now: <b style="color:var(--forest)">'+active['window']+'</b>.') if active else 'Next milestone:'}</div>{win_html}</div>
+    {sched_html}
+
+    {recurring_card}
 
     {rate_card}
 
@@ -421,16 +540,16 @@ def send_email(subject, body_text, html_path, ec):
 
 # ============================== MAIN ==============================
 def main():
-    cfg, windows, products, observations, _ = load_program()
+    cfg, windows, products, observations, _, recurring = load_program()
     try:
         days, today_str = get_weather(cfg)
     except Exception as e:
         print(f"ERROR fetching weather: {e}"); sys.exit(1)
     m = build_model(days, today_str, cfg)
     prod_rows = product_math(products, cfg["turf_area_sqft"])
-    brief = text_brief(m, cfg, windows, observations)
+    brief = text_brief(m, cfg, windows, observations, recurring)
     print(brief)
-    HTML_FILE.write_text(render_html(m, cfg, windows, prod_rows, observations), encoding="utf-8")
+    HTML_FILE.write_text(render_html(m, cfg, windows, prod_rows, observations, recurring), encoding="utf-8")
     print(f"\nDashboard written to {HTML_FILE}")
     if "--email" in sys.argv:
         try: send_email(f"Turf Console \u2014 week of {date.today():%b %-d}", brief, HTML_FILE, EMAIL)
