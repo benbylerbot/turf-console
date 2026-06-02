@@ -245,6 +245,13 @@ def text_brief(m, cfg, windows, observations, recurring=[]):
         L.append(ln + ".")
     L.append(f"         Soil: {m['soil'][0]} ({'+' if m['net14']>=0 else ''}{m['net14']}\u2033 net). "
              f"Trailing balance from {m['obs_days']}/14 days observed.")
+    irr_d = recommend_irrigation_days(m["fc"], m["irrigate"], m["sessions"], m["mow_idx"], cfg["sprinkler_rate_in_per_hr"])
+    if irr_d:
+        L.append("         Run 5\u20138 AM on:")
+        for d in irr_d:
+            f = d["day"]; min_s = f" ({d['minutes']} min/zone)" if d["minutes"] else ""
+            rain_s = " \u2014 rain likely, check forecast" if d["rain_likely"] else ""
+            L.append(f"           {f['dow']} {f['label']}: {d['amount']}\u2033{min_s}{rain_s}")
     if m["mow"]:
         L.append(f"\n[MOW]    " + ("Not yet (cut %dd ago). Revisit ~%s %s." % (m['days_since'], m['mow']['dow'], m['mow']['label'])
                  if m["needs_mow"] is False else f"Best day: {m['mow']['dow']} {m['mow']['label']}. One-third rule at {cfg['hoc_inches']}\u2033."))
@@ -282,59 +289,115 @@ def text_brief(m, cfg, windows, observations, recurring=[]):
     L.append("=" * 54)
     return "\n".join(L)
 
-# ============================== RECURRING APPLICATIONS HTML ==============================
+# ============================== IRRIGATION + RECURRING INTELLIGENCE ==============================
+def recommend_irrigation_days(fc, irrigate, sessions, mow_idx, sprinkler_rate):
+    """Pick best days this week to run irrigation, spread to avoid rain and mow day."""
+    if irrigate <= 0 or sessions == 0 or not fc: return []
+    amount_per = round(irrigate / sessions, 2)
+    minutes = round(amount_per / sprinkler_rate * 60) if sprinkler_rate > 0 else 0
+    scored = []
+    for i, f in enumerate(fc):
+        sc = 0; pop = f["pop"] or 0; rain = f["rain"] or 0; tmax = f["tmax"] or 85
+        if rain > 0.25: sc += 100      # rain will cover it, skip
+        elif rain > 0.1: sc += 40
+        sc += pop * 0.4                # penalise rainy-looking days
+        if tmax > 95: sc += 10         # more evaporation loss on hottest days
+        if i == mow_idx: sc += 15      # prefer not to soak right before mowing
+        sc += i * 1.5                  # slight preference for earlier in week
+        scored.append((sc, i, f))
+    scored.sort(key=lambda x: x[0])
+    picks = []
+    if sessions == 1:
+        picks = [scored[0][1]]
+    elif sessions == 2:
+        first = [x for x in scored if x[1] <= 3]; second = [x for x in scored if x[1] >= 3]
+        if first: picks.append(first[0][1])
+        for _, idx, _ in second:
+            if not picks or abs(idx - picks[0]) >= 2: picks.append(idx); break
+        if len(picks) < 2 and second: picks.append(second[0][1])
+    else:
+        for third in [[x for x in scored if x[1]<=2],[x for x in scored if 2<x[1]<=4],[x for x in scored if x[1]>4]]:
+            if third: picks.append(third[0][1])
+    result = []
+    for idx in sorted(set(picks))[:sessions]:
+        f = fc[idx]
+        result.append({"day":f,"amount":amount_per,"minutes":minutes,
+                       "rain_likely":((f["pop"] or 0)>=50 or (f["rain"] or 0)>=0.2)})
+    return result
+
 def build_recurring_html(recurring, fc):
     if not recurring: return ""
     today = date.today()
     max_fc_temp = max((f["tmax"] for f in fc if f["tmax"]), default=80)
+    hot_days = sum(1 for f in fc if (f["tmax"] or 0) >= 90)
+    max_bp = "High" if any(f["risk"]=="High" for f in fc) else ("Mod" if any(f["risk"]=="Mod" for f in fc) else "Low")
+    def fc_idx(d): i=(d-today).days; return i if 0<=i<len(fc) else None
+    def next_dry(from_i):
+        for i in range(from_i, len(fc)):
+            if (fc[i]["pop"] or 0)<40 and (fc[i]["rain"] or 0)<0.1: return fc[i]
+        return None
     rows = []
     for p in recurring:
-        name = p.get("name",""); tool = p.get("tool",""); rate = p.get("rate","")
-        interval = p.get("interval_days", 28); last = p.get("last_applied","")
-        season_end = p.get("season_end",""); max_apps = p.get("max_applications")
-        skip_note = p.get("skip_note","")
-        upcoming = []
+        name=p.get("name",""); tool=p.get("tool",""); rate=p.get("rate","")
+        interval=p.get("interval_days",28); last=p.get("last_applied","")
+        season_end=p.get("season_end",""); max_apps=p.get("max_applications")
+        skip_note=p.get("skip_note","")
+        upcoming=[]
         if last:
             try:
-                last_d = datetime.strptime(last, "%Y-%m-%d").date()
-                for k in range(1, 6):
-                    nd = last_d + timedelta(days=interval * k)
-                    if season_end and nd > datetime.strptime(season_end, "%Y-%m-%d").date(): break
-                    if max_apps and k > max_apps: break
+                last_d=datetime.strptime(last,"%Y-%m-%d").date()
+                for k in range(1,6):
+                    nd=last_d+timedelta(days=interval*k)
+                    if season_end and nd>datetime.strptime(season_end,"%Y-%m-%d").date(): break
+                    if max_apps and k>max_apps: break
                     upcoming.append(nd)
             except ValueError: pass
-        next_due = upcoming[0] if upcoming else None
-        days_until = (next_due - today).days if next_due else None
-        if not last:
-            urg = "var(--amber)"; next_label = "Not yet applied this season"
-        elif next_due is None:
-            urg = "var(--ink-soft)"; next_label = "Season complete"
-        elif days_until <= 0:
-            urg = "var(--terra)"; next_label = f"OVERDUE by {abs(days_until)}d"
-        elif days_until <= 7:
-            urg = "var(--amber)"; next_label = f"{next_due:%b %-d} \u2014 in {days_until}d"
-        else:
-            urg = "var(--moss)"; next_label = f"{next_due:%b %-d} \u2014 in {days_until}d"
-        warn_html = ""
-        if skip_note:
-            if ("90" in skip_note or "stress" in skip_note.lower()) and max_fc_temp >= 90:
-                warn_html = f'<div style="font-size:11px;color:var(--amber);margin-top:4px">\u26a0 {max_fc_temp}\u00b0F forecast \u2014 skip or reduce rate if lawn looks stressed.</div>'
-            elif "85" in skip_note and 85 <= max_fc_temp < 90:
-                warn_html = f'<div style="font-size:11px;color:var(--amber);margin-top:4px">\u26a0 {max_fc_temp}\u00b0F forecast \u2014 apply early morning on coolest day.</div>'
-        following = " \u2192 ".join(d.strftime("%b %-d") for d in upcoming[1:3]) if len(upcoming) > 1 else ""
-        last_html = (f'<span>Last: {last}</span>' if last
-                     else '<span style="color:var(--amber)">Set last_applied in lawn.yaml or use Log button when you first apply.</span>')
+        next_due=upcoming[0] if upcoming else None
+        days_until=(next_due-today).days if next_due else None
+        if not last: urg="var(--amber)"; next_label="Not yet applied this season"
+        elif next_due is None: urg="var(--ink-soft)"; next_label="Season complete"
+        elif days_until<=0: urg="var(--terra)"; next_label=f"OVERDUE by {abs(days_until)}d"
+        elif days_until<=7: urg="var(--amber)"; next_label=f"{next_due:%b %-d} \u2014 in {days_until}d"
+        else: urg="var(--moss)"; next_label=f"{next_due:%b %-d} \u2014 in {days_until}d"
+        intel=""
+        is_fung=any(kw in name.lower() for kw in ["fungicide","propicon"])
+        is_pgr=any(kw in name.lower() for kw in ["pgr","pramaxis","growth"])
+        # Layer 1 — rain window: if due this week and rain forecast on that day, push to next dry
+        if next_due and days_until is not None and 0<=days_until<=7:
+            di=fc_idx(next_due)
+            if di is not None and ((fc[di]["pop"] or 0)>=50 or (fc[di]["rain"] or 0)>=0.15):
+                dry=next_dry(di+1)
+                alt=(dry["dow"]+" "+dry["label"]) if dry else "next dry morning"
+                intel+=f'<div style="font-size:11px;color:var(--sky);margin-top:4px">\U0001F327 Rain on due date \u2014 wait for dry leaves. Apply {alt} instead.</div>'
+        # Layer 2 — fungicide auto-tighten: brown patch pressure is up, don't wait
+        if is_fung and max_bp in ("High","Mod") and days_until is not None and days_until>5:
+            dry=next_dry(0); ds=(dry["dow"]+" "+dry["label"]) if dry else "soonest dry morning"
+            intel+=f'<div style="font-size:11px;color:var(--terra);margin-top:4px">\U0001F344 Brown patch {max_bp} \u2014 don\'t wait {days_until}d. Apply {ds} at preventative rate.</div>'
+            urg="var(--terra)"; next_label=f"Apply early \u2014 was {next_due:%b %-d}"
+        # Layer 3 — PGR heat extension: most of week is 90°F+, grass growth stalled
+        if is_pgr and hot_days>=3 and days_until is not None and days_until<=10:
+            ext=next_due+timedelta(days=interval) if next_due else None
+            ext_s=ext.strftime("%b %-d") if ext else "next cycle"
+            intel+=f'<div style="font-size:11px;color:var(--amber);margin-top:4px">\u26a0 {hot_days}d \u226590\u00b0F forecast \u2014 grass growth stalled. Skip this cycle; next due {ext_s}.</div>'
+        elif is_pgr and max_fc_temp>=90 and not intel:
+            intel+=f'<div style="font-size:11px;color:var(--amber);margin-top:4px">\u26a0 {max_fc_temp}\u00b0F forecast \u2014 reduce rate if lawn shows heat stress.</div>'
+        # Generic heat note for other products (e.g. Torocity)
+        if not intel and skip_note and "85" in skip_note and max_fc_temp>=85:
+            dry=next_dry(0); ds=(dry["dow"]+" "+dry["label"]) if dry else "coolest morning"
+            intel+=f'<div style="font-size:11px;color:var(--amber);margin-top:4px">\u26a0 {max_fc_temp}\u00b0F forecast \u2014 apply {ds} early AM only.</div>'
+        following=" \u2192 ".join(d.strftime("%b %-d") for d in upcoming[1:3]) if len(upcoming)>1 else ""
+        last_html=(f'<span>Last: {last}</span>' if last
+                   else '<span style="color:var(--amber)">Set last_applied in lawn.yaml or log with button when you first apply.</span>')
         rows.append(
             f'<div style="padding:11px 0;border-bottom:1px dashed var(--line)">'
             f'<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap">'
             f'<span style="font-weight:600;color:var(--forest);font-size:14px">{name}</span>'
             f'<span style="font-family:\'Spline Sans Mono\',monospace;font-size:13px;font-weight:600;color:{urg}">{next_label}</span></div>'
             f'<div style="font-size:11px;color:var(--ink-soft);margin-top:3px">{tool} \u00b7 {rate} \u00b7 every {interval}d</div>'
-            f'<div style="font-size:11px;color:var(--ink-soft);margin-top:2px">{last_html}'
-            f'{(" \u2192 " + following) if following else ""}</div>'
-            f'{warn_html}</div>')
+            f'<div style="font-size:11px;color:var(--ink-soft);margin-top:2px">{last_html}{(" \u2192 "+following) if following else ""}</div>'
+            f'{intel}</div>')
     return (f'<div class="card"><h2>\U0001F501 Recurring Applications</h2>'
-            f'<div class="sub">Anchored to your last applied date. Use the Log button after each application to keep dates current.</div>'
+            f'<div class="sub">Schedule adapts for rain windows, disease pressure, and heat. Log each application to keep dates current.</div>'
             f'{"".join(rows)}</div>')
 
 # ============================== HTML ==============================
@@ -473,6 +536,26 @@ def render_html(m, cfg, windows, prod_rows, observations, recurring=[]):
                  f"""<div class="sub">Rate × your yard = total to put down (and bags to buy). Edit rates in lawn.yaml.</div>{rate_rows}</div>""") if prod_rows else ""
 
     recurring_card = build_recurring_html(recurring, m["fc"])
+    irr_days = recommend_irrigation_days(m["fc"], m["irrigate"], m["sessions"], m["mow_idx"], cfg["sprinkler_rate_in_per_hr"])
+    if irr_days:
+        irr_rows = ""
+        for d in irr_days:
+            fd = d["day"]
+            min_s = f" \u00b7 {d['minutes']} min/zone" if d["minutes"] else " \u00b7 set sprinkler_rate_in_per_hr for minutes"
+            rain_s = ' <span style="font-size:10px;color:var(--sky)">(rain likely \u2014 check before running)</span>' if d["rain_likely"] else ""
+            irr_rows += (f'<div style="display:flex;justify-content:space-between;align-items:center;'
+                        f'padding:8px 0;border-bottom:1px dashed var(--line)">'
+                        f'<span style="font-weight:600;color:var(--forest)">{fd["dow"]} {fd["label"]}</span>'
+                        f'<span class="mono" style="font-size:13px;color:var(--sky)">{d["amount"]}\u2033{min_s}</span>'
+                        f'</div>{rain_s}')
+        irr_card = (f'<div class="card"><h2>\U0001F4A7 When to Irrigate</h2>'
+                   f'<div class="sub">Best days this week, picked around rain and your mow day. '
+                   f'Always 5\u20138 AM \u2014 never evening (brown patch). Deep and infrequent beats daily light watering.</div>'
+                   f'{irr_rows}'
+                   f'<div style="font-size:11px;color:var(--ink-soft);margin-top:10px">'
+                   f'Cycle-soak: 15 min on, wait 30 min, 15 min again \u2014 reduces runoff on compacted soil.</div></div>')
+    else:
+        irr_card = ""
 
     soil = m["soil"]
     body = f"""
@@ -497,6 +580,8 @@ def render_html(m, cfg, windows, prod_rows, observations, recurring=[]):
     <div class="bal-track"><div class="bal-mid"></div><div class="bal-fill" style="left:{fill_left}%;width:{fill_w}%;background:{fill_color}"></div></div>
     <div class="bal-cap"><span>\u2190 drier</span><span>even</span><span>wetter \u2192</span></div>
     <div class="sub" style="margin:12px 0 0">Coming 7 days: turf wants <b>{m['et7']}\u2033</b>, rain may bring <b>{m['rain7']}\u2033</b>, soil banks <b>{m['carry']}\u2033</b>. Make up: <b>{irr}\u2033</b>.</div></div>
+
+    {irr_card}
 
     <div class="card"><h2>\U0001F324 7-Day Outlook</h2><div class="sub">Highs / lows · rain inches & chance · mow day flagged.</div><div class="strip">{days_html}</div></div>
 
