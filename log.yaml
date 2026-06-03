@@ -5,4 +5,7 @@ log:
 - date: '2026-06-02'
   type: Mowed
   detail: Mowed morning of 6/1/2026
+- date: '2026-06-03'
+  type: Fungicide
+  detail: ''
 observations: []
