@@ -164,7 +164,7 @@ recurring_products:
     tool: "Ego 4-gal backpack sprayer"
     rate: "1-2 oz / 1,000 sqft preventative (8-16 oz total)"
     interval_days: 21            # tighten to 14 if brown-patch pressure is High
-    last_applied: ""             # SET THIS when you first apply — or log with button
+    last_applied: "2026-06-03"             # SET THIS when you first apply — or log with button
     season_end: "2026-09-15"
     skip_note: "Tighten to 14-day interval when brown-patch risk is High"
 
