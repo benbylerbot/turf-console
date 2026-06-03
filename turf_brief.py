@@ -56,6 +56,28 @@ def load_program():
     products = prog.get("products", [])
     observations = [o for o in logd.get("observations", []) if str(o.get("status", "open")).lower() == "open"]
     recurring = prog.get("recurring_products", [])
+    # Auto-populate last_applied from log entries when yaml field is empty.
+    # This makes the Log button work for recurring products without editing lawn.yaml.
+    log_entries = logd.get("log", [])
+    type_map = {
+        ("fungicide","propicon","propiconazole"): ["fungicide"],
+        ("pgr","pramaxis","growth regulator"):   ["pgr"],
+        ("torocity","mesotrione","herbicide"):    ["broadleaf spray","herbicide"],
+        ("pre-emergent","crabgrass"):             ["pre-emergent"],
+        ("seed","overseed"):                      ["seed / overseed"],
+        ("fertilizer","starter"):                 ["fertilizer"],
+        ("aerat",):                               ["aerated"],
+        ("dethatch",):                            ["dethatched"],
+    }
+    for p in recurring:
+        if p.get("last_applied"): continue   # already set, don't override
+        name_lower = p.get("name","").lower()
+        for prod_kws, log_types in type_map.items():
+            if any(kw in name_lower for kw in prod_kws):
+                matches = [e["date"] for e in log_entries
+                           if any(lt in e.get("type","").lower() for lt in log_types) and e.get("date")]
+                if matches: p["last_applied"] = max(matches)
+                break
     return cfg, windows, products, observations, logd.get("log", []), recurring
 
 # ============================== WEATHER FETCH ==============================
