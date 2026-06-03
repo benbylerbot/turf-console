@@ -21,7 +21,7 @@ irrigation:
   weekly_target_in: 1.1      # reference; the ET math drives the actual number
   crop_coefficient: 0.8      # turf water use = this x reference ET0
   rootzone_hold_in: 0.45     # rain surplus the soil banks for later
-  sprinkler_rate_in_per_hr: 0  # set to your real rate (e.g. 0.8) for minutes per zone
+  sprinkler_rate_in_per_hr: 0.4  # set to your real rate (e.g. 0.8) for minutes per zone
 
 supply:
   retailer: "Grass Pad"
