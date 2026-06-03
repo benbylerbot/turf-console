@@ -284,35 +284,36 @@ def text_brief(m, cfg, windows, observations, recurring=[]):
         L.append("\n[WATCHING]")
         for o in observations[:4]:
             L.append(f"           \u2022 {o.get('note','')} (since {o.get('date','')})")
-    now_wins = [(w, date(yr,*w["start"]), date(yr,*w["end"]))
-                for w in windows if date(yr,*w["start"]) <= date.today() <= date(yr,*w["end"])]
-    if now_wins:
-        for w, wst, wen in now_wins:
-            L.append(f"\n[NOW]    {w['window']} ({wst:%b %-d}\u2013{wen:%b %-d})")
+    today_s = date.today(); y_s = today_s.year; in30_s = today_s + timedelta(days=30)
+    for w in windows:
+        if date(y_s,*w["start"]) <= today_s <= date(y_s,*w["end"]):
+            L.append(f"\n[NOW]    {w['window']} (through {date(y_s,*w['end']):%b %-d})")
             for t in w["tasks"]: L.append(f"             \u2022 {t}")
-    if nxt:
-        L.append(f"\n[NEXT]   {nxt['window']} ({date(yr,*nxt['start']):%b %-d}\u2013{date(yr,*nxt['end']):%b %-d}) \u2014 stock by {buy_by:%a %b %-d}:")
-        for t in nxt["tasks"]: L.append(f"             \u2022 {t}")
-    if recurring:
-        today_r = date.today()
-        due_soon, not_started_r = [], []
-        for p in recurring:
-            last = p.get("last_applied", ""); iv = p.get("interval_days", 28)
-            if not last:
-                not_started_r.append(p.get("name", ""))
-            else:
-                try:
-                    nd = datetime.strptime(last, "%Y-%m-%d").date() + timedelta(days=iv)
-                    if (nd - today_r).days <= 14:
-                        due_soon.append((p.get("name",""), nd, (nd-today_r).days))
-                except Exception: pass
-        if not_started_r or due_soon:
-            L.append("\n[RECURRING]")
-            for n in not_started_r:
-                L.append(f"           ! {n} \u2014 not yet started this season")
-            for n, nd, dd in due_soon:
-                s = "OVERDUE" if dd < 0 else f"in {dd}d"
-                L.append(f"           \u203a {n} \u2014 due {nd:%b %-d} ({s})")
+    sched_items = []
+    for p in recurring:
+        last = p.get("last_applied",""); iv = p.get("interval_days",28)
+        if not last:
+            sched_items.append((today_s, f"! {p.get('name','')} \u2014 not yet started"))
+        else:
+            try:
+                nd = datetime.strptime(last,"%Y-%m-%d").date() + timedelta(days=iv)
+                if nd <= in30_s:
+                    dd = (nd-today_s).days; s = "OVERDUE" if dd<0 else f"in {dd}d"
+                    sched_items.append((nd, f"{nd:%b %-d}  {p.get('name','')} ({s}) \u2014 {p.get('tool','')}"))
+            except: pass
+    for w in windows:
+        wst = date(y_s,*w["start"])
+        if today_s < wst <= in30_s:
+            bb = wst - timedelta(days=cfg["lead_time_days"])
+            sched_items.append((wst, f"{wst:%b %-d}  {w['window']} begins \u2014 stock by {bb:%b %-d}"))
+    if sched_items:
+        sched_items.sort(key=lambda x: x[0])
+        L.append("\n[NEXT 30 DAYS]")
+        for _, line in sched_items: L.append(f"           {line}")
+    coming_s = sorted([(w, date(y_s,*w["start"])) for w in windows if date(y_s,*w["start"]) > in30_s], key=lambda x:x[1])
+    if coming_s:
+        w, wst = coming_s[0]; bb = wst - timedelta(days=cfg["lead_time_days"])
+        L.append(f"\n[COMING]  {w['window']} starts {wst:%b %-d} \u2014 stock by {bb:%b %-d}")
     L.append("\n[7-DAY]  " + "  ".join(f"{f['dow']} {f['tmax']}/{f['tmin']}\u00b0 {f['rain']:.2f}\u2033" for f in m["fc"]))
     L.append("=" * 54)
     return "\n".join(L)
@@ -353,9 +354,9 @@ def recommend_irrigation_days(fc, irrigate, sessions, mow_idx, sprinkler_rate):
                        "rain_likely":((f["pop"] or 0)>=50 or (f["rain"] or 0)>=0.2)})
     return result
 
-def build_recurring_html(recurring, fc):
-    if not recurring: return ""
-    today = date.today()
+def build_my_schedule_html(windows, recurring, fc, cfg):
+    """One card: active window tasks + chronological 30-day timeline + coming up."""
+    today = date.today(); y = today.year; in30 = today + timedelta(days=30)
     max_fc_temp = max((f["tmax"] for f in fc if f["tmax"]), default=80)
     hot_days = sum(1 for f in fc if (f["tmax"] or 0) >= 90)
     max_bp = "High" if any(f["risk"]=="High" for f in fc) else ("Mod" if any(f["risk"]=="Mod" for f in fc) else "Low")
@@ -364,69 +365,91 @@ def build_recurring_html(recurring, fc):
         for i in range(from_i, len(fc)):
             if (fc[i]["pop"] or 0)<40 and (fc[i]["rain"] or 0)<0.1: return fc[i]
         return None
-    rows = []
+    parts = []
+    # Active windows — show tasks
+    active_wins = [(w, date(y,*w["start"]), date(y,*w["end"])) for w in windows
+                   if date(y,*w["start"]) <= today <= date(y,*w["end"])]
+    if active_wins:
+        parts.append('<div style="font-size:10px;font-family:\'Spline Sans Mono\',monospace;letter-spacing:.15em;text-transform:uppercase;color:var(--lime);margin-bottom:8px">Active Now</div>')
+        for w, wst, wen in active_wins:
+            tasks = "".join(f'<li style="list-style:none;padding:2px 0;font-size:13px;color:var(--ink-soft)"><span style="color:var(--lime);margin-right:7px">\u203a</span>{t}</li>' for t in w["tasks"])
+            parts.append(f'<div style="border-left:3px solid var(--lime-bright);padding:4px 0 6px 13px;margin-bottom:12px">'
+                        f'<div style="font-family:\'Fraunces\',serif;font-size:16px;font-weight:600;color:var(--forest)">{w["window"]}</div>'
+                        f'<div style="font-size:11px;color:var(--moss);margin-bottom:6px">through {wen:%b %-d}</div>'
+                        f'<ul style="padding:0;margin:0">{tasks}</ul></div>')
+    # 30-day timeline — recurring product dates + window starts, chronological
+    timeline = []
     for p in recurring:
         name=p.get("name",""); tool=p.get("tool",""); rate=p.get("rate","")
         interval=p.get("interval_days",28); last=p.get("last_applied","")
-        season_end=p.get("season_end",""); max_apps=p.get("max_applications")
-        skip_note=p.get("skip_note","")
-        upcoming=[]
-        if last:
-            try:
-                last_d=datetime.strptime(last,"%Y-%m-%d").date()
-                for k in range(1,6):
-                    nd=last_d+timedelta(days=interval*k)
-                    if season_end and nd>datetime.strptime(season_end,"%Y-%m-%d").date(): break
-                    if max_apps and k>max_apps: break
-                    upcoming.append(nd)
-            except ValueError: pass
-        next_due=upcoming[0] if upcoming else None
-        days_until=(next_due-today).days if next_due else None
-        if not last: urg="var(--amber)"; next_label="Not yet applied this season"
-        elif next_due is None: urg="var(--ink-soft)"; next_label="Season complete"
-        elif days_until<=0: urg="var(--terra)"; next_label=f"OVERDUE by {abs(days_until)}d"
-        elif days_until<=7: urg="var(--amber)"; next_label=f"{next_due:%b %-d} \u2014 in {days_until}d"
-        else: urg="var(--moss)"; next_label=f"{next_due:%b %-d} \u2014 in {days_until}d"
-        intel=""
-        is_fung=any(kw in name.lower() for kw in ["fungicide","propicon"])
-        is_pgr=any(kw in name.lower() for kw in ["pgr","pramaxis","growth"])
-        # Layer 1 — rain window: if due this week and rain forecast on that day, push to next dry
-        if next_due and days_until is not None and 0<=days_until<=7:
-            di=fc_idx(next_due)
+        season_end=p.get("season_end",""); max_apps=p.get("max_applications"); skip_note=p.get("skip_note","")
+        if not last:
+            row = (f'<div style="display:flex;gap:12px;padding:9px 0;border-bottom:1px dashed var(--line);align-items:flex-start">'
+                  f'<span class="mono" style="font-size:11px;color:var(--amber);width:52px;flex:0 0 auto;padding-top:1px">Start</span>'
+                  f'<span><b style="color:var(--forest)">{name}</b>'
+                  f'<br><span style="font-size:11px;color:var(--ink-soft)">{tool} \u00b7 {rate}</span>'
+                  f'<br><span style="font-size:11px;color:var(--amber)">Not yet applied \u2014 log with button after first use</span></span></div>')
+            timeline.append((today, row)); continue
+        try: last_d = datetime.strptime(last, "%Y-%m-%d").date()
+        except ValueError: continue
+        for k in range(1, 5):
+            nd = last_d + timedelta(days=interval * k)
+            if season_end:
+                try:
+                    if nd > datetime.strptime(season_end, "%Y-%m-%d").date(): break
+                except: pass
+            if max_apps and k > max_apps: break
+            if nd > in30: break
+            days_until = (nd - today).days
+            is_fung = any(kw in name.lower() for kw in ["fungicide","propicon"])
+            is_pgr = any(kw in name.lower() for kw in ["pgr","pramaxis","growth"])
+            intel = ""
+            di = fc_idx(nd)
             if di is not None and ((fc[di]["pop"] or 0)>=50 or (fc[di]["rain"] or 0)>=0.15):
-                dry=next_dry(di+1)
-                alt=(dry["dow"]+" "+dry["label"]) if dry else "next dry morning"
-                intel+=f'<div style="font-size:11px;color:var(--sky);margin-top:4px">\U0001F327 Rain on due date \u2014 wait for dry leaves. Apply {alt} instead.</div>'
-        # Layer 2 — fungicide auto-tighten: brown patch pressure is up, don't wait
-        if is_fung and max_bp in ("High","Mod") and days_until is not None and days_until>5:
-            dry=next_dry(0); ds=(dry["dow"]+" "+dry["label"]) if dry else "soonest dry morning"
-            intel+=f'<div style="font-size:11px;color:var(--terra);margin-top:4px">\U0001F344 Brown patch {max_bp} \u2014 don\'t wait {days_until}d. Apply {ds} at preventative rate.</div>'
-            urg="var(--terra)"; next_label=f"Apply early \u2014 was {next_due:%b %-d}"
-        # Layer 3 — PGR heat extension: most of week is 90°F+, grass growth stalled
-        if is_pgr and hot_days>=3 and days_until is not None and days_until<=10:
-            ext=next_due+timedelta(days=interval) if next_due else None
-            ext_s=ext.strftime("%b %-d") if ext else "next cycle"
-            intel+=f'<div style="font-size:11px;color:var(--amber);margin-top:4px">\u26a0 {hot_days}d \u226590\u00b0F forecast \u2014 grass growth stalled. Skip this cycle; next due {ext_s}.</div>'
-        elif is_pgr and max_fc_temp>=90 and not intel:
-            intel+=f'<div style="font-size:11px;color:var(--amber);margin-top:4px">\u26a0 {max_fc_temp}\u00b0F forecast \u2014 reduce rate if lawn shows heat stress.</div>'
-        # Generic heat note for other products (e.g. Torocity)
-        if not intel and skip_note and "85" in skip_note and max_fc_temp>=85:
-            dry=next_dry(0); ds=(dry["dow"]+" "+dry["label"]) if dry else "coolest morning"
-            intel+=f'<div style="font-size:11px;color:var(--amber);margin-top:4px">\u26a0 {max_fc_temp}\u00b0F forecast \u2014 apply {ds} early AM only.</div>'
-        following=" \u2192 ".join(d.strftime("%b %-d") for d in upcoming[1:3]) if len(upcoming)>1 else ""
-        last_html=(f'<span>Last: {last}</span>' if last
-                   else '<span style="color:var(--amber)">Set last_applied in lawn.yaml or log with button when you first apply.</span>')
-        rows.append(
-            f'<div style="padding:11px 0;border-bottom:1px dashed var(--line)">'
-            f'<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap">'
-            f'<span style="font-weight:600;color:var(--forest);font-size:14px">{name}</span>'
-            f'<span style="font-family:\'Spline Sans Mono\',monospace;font-size:13px;font-weight:600;color:{urg}">{next_label}</span></div>'
-            f'<div style="font-size:11px;color:var(--ink-soft);margin-top:3px">{tool} \u00b7 {rate} \u00b7 every {interval}d</div>'
-            f'<div style="font-size:11px;color:var(--ink-soft);margin-top:2px">{last_html}{(" \u2192 "+following) if following else ""}</div>'
-            f'{intel}</div>')
-    return (f'<div class="card"><h2>\U0001F501 Recurring Applications</h2>'
-            f'<div class="sub">Schedule adapts for rain windows, disease pressure, and heat. Log each application to keep dates current.</div>'
-            f'{"".join(rows)}</div>')
+                dry = next_dry(di+1); alt = (dry["dow"]+" "+dry["label"]) if dry else "next dry morning"
+                intel += f' <span style="color:var(--sky)">\U0001F327 Rain on due date \u2014 apply {alt} instead</span>'
+            if is_fung and max_bp in ("High","Mod") and days_until > 5:
+                dry = next_dry(0); ds = (dry["dow"]+" "+dry["label"]) if dry else "soonest dry morning"
+                intel += f' <span style="color:var(--terra)">\U0001F344 Brown patch {max_bp} \u2014 apply {ds} instead</span>'
+            if is_pgr and hot_days >= 3:
+                intel += f' <span style="color:var(--amber)">\u26a0 {hot_days}d \u226590\u00b0F \u2014 consider skipping</span>'
+            elif not intel and skip_note and "85" in skip_note and max_fc_temp >= 85:
+                dry = next_dry(0); ds = (dry["dow"]+" "+dry["label"]) if dry else "coolest AM"
+                intel += f' <span style="color:var(--amber)">\u26a0 Apply {ds} early AM</span>'
+            urg = "var(--terra)" if days_until<=0 else ("var(--amber)" if days_until<=7 else "var(--moss)")
+            row = (f'<div style="display:flex;gap:12px;padding:9px 0;border-bottom:1px dashed var(--line);align-items:flex-start">'
+                  f'<span class="mono" style="font-size:11px;color:{urg};width:52px;flex:0 0 auto;padding-top:1px">{nd:%b %-d}</span>'
+                  f'<span><b style="color:var(--forest)">{name}</b>'
+                  f'<br><span style="font-size:11px;color:var(--ink-soft)">{tool} \u00b7 {rate}</span>'
+                  f'{("<br><span style=\"font-size:11px\">"+intel+"</span>") if intel else ""}</span></div>')
+            timeline.append((nd, row))
+    for w in windows:
+        wst = date(y, *w["start"])
+        if today < wst <= in30:
+            buy_by = wst - timedelta(days=cfg["lead_time_days"])
+            row = (f'<div style="display:flex;gap:12px;padding:9px 0;border-bottom:1px dashed var(--line);align-items:flex-start">'
+                  f'<span class="mono" style="font-size:11px;color:var(--forest);width:52px;flex:0 0 auto;padding-top:1px">{wst:%b %-d}</span>'
+                  f'<span><b style="color:var(--forest)">{w["window"]} begins</b>'
+                  f'<br><span style="font-size:11px;color:var(--terra)">\U0001F6D2 Stock up by {buy_by:%b %-d}</span></span></div>')
+            timeline.append((wst, row))
+    timeline.sort(key=lambda x: x[0])
+    if timeline:
+        parts.append('<div style="font-size:10px;font-family:\'Spline Sans Mono\',monospace;letter-spacing:.15em;text-transform:uppercase;color:var(--ink-soft);margin:14px 0 8px">Next 30 Days</div>')
+        parts.extend(r for _, r in timeline)
+    # Coming up beyond 30 days
+    coming = [(w, date(y,*w["start"]), date(y,*w["end"])) for w in windows if date(y,*w["start"]) > in30]
+    past = [w for w in windows if date(y,*w["end"]) < today]
+    if coming:
+        parts.append('<div style="font-size:10px;font-family:\'Spline Sans Mono\',monospace;letter-spacing:.15em;text-transform:uppercase;color:var(--ink-soft);margin:14px 0 8px">Coming Up</div>')
+        for w, wst, wen in coming:
+            buy_by = wst - timedelta(days=cfg["lead_time_days"])
+            parts.append(f'<div style="display:flex;justify-content:space-between;align-items:baseline;padding:6px 0;border-bottom:1px dashed var(--line);font-size:13px">'
+                        f'<span><b style="color:var(--forest)">{w["window"]}</b> <span style="color:var(--ink-soft);font-size:11px">{wst:%b %-d}\u2013{wen:%b %-d}</span></span>'
+                        f'<span style="font-size:11px;color:var(--moss);white-space:nowrap">stock by {buy_by:%b %-d}</span></div>')
+    if past:
+        names = " \u00b7 ".join(f'<span style="text-decoration:line-through;opacity:.35">{w["window"]}</span>' for w in past)
+        parts.append(f'<div style="font-size:11px;color:var(--ink-soft);border-top:1px dashed var(--line);padding-top:8px;margin-top:6px">Done this year: {names}</div>')
+    return f'<div class="card"><h2>\U0001F4CB My Schedule</h2>{"".join(parts)}</div>'
 
 # ============================== HTML ==============================
 CSS = r"""
@@ -511,59 +534,14 @@ def render_html(m, cfg, windows, prod_rows, observations, recurring=[]):
         rows = "".join(f"""<div class="obs"><span class="od">{o.get('date','')}</span><span>{o.get('note','')}</span></div>""" for o in observations)
         obs_card = f"""<div class="card"><h2>\U0001F50D Watching</h2><div class="sub">Open issues from your log.</div>{rows}</div>"""
 
-    # Build full-year schedule card
-    sched_parts = []
-    s_now = date.today(); s_y = s_now.year
-    s_rows = []
-    for w in windows:
-        st, en = date(s_y, *w["start"]), date(s_y, *w["end"])
-        status = "past" if s_now > en else ("active" if st <= s_now <= en else "upcoming")
-        s_rows.append((w, status, st, en))
-    def bb(st): return (st - timedelta(days=cfg["lead_time_days"])).strftime("%b %-d")
-    def tasklist(w, color):
-        return "".join(f'<li style="list-style:none;padding:3px 0;font-size:13px;color:var(--ink-soft)">'
-                       f'<span style="color:{color};margin-right:7px">\u203a</span>{t}</li>' for t in w["tasks"])
-    for w, status, st, en in s_rows:
-        if status == "active":
-            sched_parts.append(
-                f'<div style="border-left:3px solid var(--lime-bright);padding:6px 0 6px 14px;margin-bottom:14px">'
-                f'<div style="font-size:10px;font-family:\'Spline Sans Mono\',monospace;letter-spacing:.14em;'
-                f'text-transform:uppercase;color:var(--lime);margin-bottom:4px">Active now</div>'
-                f'<div style="font-family:\'Fraunces\',serif;font-size:18px;font-weight:600;color:var(--forest)">{w["window"]}</div>'
-                f'<div style="font-size:11px;color:var(--moss);margin-bottom:8px">{st:%b %-d} \u2013 {en:%b %-d}</div>'
-                f'<ul style="padding:0;margin:0">{tasklist(w,"var(--lime)")}</ul></div>')
-    for i, (w, status, st, en) in enumerate([(r[0],r[1],r[2],r[3]) for r in s_rows if r[1]=="upcoming"]):
-        buy_label = bb(st)
-        if i == 0:
-            sched_parts.append(
-                f'<div style="border-left:3px solid var(--line);padding:4px 0 6px 14px;margin-bottom:10px">'
-                f'<div style="font-size:10px;font-family:\'Spline Sans Mono\',monospace;color:var(--ink-soft);'
-                f'margin-bottom:4px">Next up \u2014 stock by {buy_label}</div>'
-                f'<div style="font-family:\'Fraunces\',serif;font-size:16px;font-weight:600;color:var(--forest)">{w["window"]}</div>'
-                f'<div style="font-size:11px;color:var(--moss);margin-bottom:6px">{st:%b %-d} \u2013 {en:%b %-d}</div>'
-                f'<ul style="padding:0;margin:0">{tasklist(w,"var(--moss)")}</ul>'
-                f'<div class="buyby" style="margin-top:8px">\U0001F6D2 Stock up by {buy_label} '
-                f'<span style="opacity:.7">({cfg["lead_time_days"]}d {cfg["retailer"]})</span></div></div>')
-        else:
-            sched_parts.append(
-                f'<div style="display:flex;justify-content:space-between;align-items:baseline;'
-                f'padding:7px 0;border-top:1px dashed var(--line);font-size:13px">'
-                f'<span><b style="color:var(--forest)">{w["window"]}</b> '
-                f'<span style="color:var(--ink-soft);font-size:11px">{st:%b %-d}\u2013{en:%b %-d}</span></span>'
-                f'<span style="font-size:11px;color:var(--moss);white-space:nowrap">stock by {buy_label}</span></div>')
-    past = [w for w, status, st, en in s_rows if status == "past"]
-    if past:
-        names = " \u00b7 ".join(f'<span style="text-decoration:line-through;opacity:.35">{w["window"]}</span>' for w in past)
-        sched_parts.append(f'<div style="font-size:11px;color:var(--ink-soft);border-top:1px dashed var(--line);'
-                           f'padding-top:8px;margin-top:6px">Done this year: {names}</div>')
-    sched_html = f'<div class="card"><h2>\U0001F4CB Your Schedule</h2>{"".join(sched_parts)}</div>'
+    schedule_html = build_my_schedule_html(windows, recurring, m["fc"], cfg)
 
     rate_rows = "".join(f"""<div class="rate"><span class="rn">{r['name']}<br><span style="font-size:11px;color:var(--moss)">{r['tool']}</span></span>"""
                         f"""<span class="rt">{('<b>'+r['total']+'</b>') if r['total'] else ''}{r['rate']}</span></div>""" for r in prod_rows)
     rate_card = (f"""<div class="card"><h2>\U0001F9EA How Much to Apply <span class="tag">{int(cfg['turf_area_sqft']):,} sqft</span></h2>"""
                  f"""<div class="sub">Rate × your yard = total to put down (and bags to buy). Edit rates in lawn.yaml.</div>{rate_rows}</div>""") if prod_rows else ""
 
-    recurring_card = build_recurring_html(recurring, m["fc"])
+    recurring_card = ""  # merged into schedule_html
     irr_days = recommend_irrigation_days(m["fc"], m["irrigate"], m["sessions"], m["mow_idx"], cfg["sprinkler_rate_in_per_hr"])
     if irr_days:
         irr_rows = ""
@@ -618,9 +596,7 @@ def render_html(m, cfg, windows, prod_rows, observations, recurring=[]):
     <div class="card"><h2>\U0001F344 Brown-Patch Pressure</h2><div class="sub">Warm nights (>65\u00b0) + humid air. Your #1 fescue threat in a KC summer.</div>
     {drows}<div class="sub" style="margin-top:12px">When risk climbs: water before dawn, never evening, ease off nitrogen, bag clippings if you spot circular tan patches.</div></div>
 
-    {sched_html}
-
-    {recurring_card}
+    {schedule_html}
 
     {rate_card}
 
