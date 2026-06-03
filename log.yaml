@@ -8,4 +8,7 @@ log:
 - date: '2026-06-03'
   type: Fungicide
   detail: ''
+- date: '2026-06-03'
+  type: Watered
+  detail: ''
 observations: []
