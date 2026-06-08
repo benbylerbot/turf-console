@@ -11,4 +11,7 @@ log:
 - date: '2026-06-03'
   type: Watered
   detail: ''
+- date: '2026-06-08'
+  type: Mowed
+  detail: 4"
 observations: []
