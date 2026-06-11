@@ -20,4 +20,7 @@ log:
 - date: '2026-06-11'
   type: Fertilizer
   detail: ''
+- date: '2026-06-11'
+  type: Other
+  detail: PGR
 observations: []
