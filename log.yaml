@@ -17,4 +17,7 @@ log:
 - date: '2026-06-10'
   type: Broadleaf spray
   detail: ''
+- date: '2026-06-11'
+  type: Fertilizer
+  detail: ''
 observations: []
