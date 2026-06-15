@@ -23,4 +23,7 @@ log:
 - date: '2026-06-11'
   type: Other
   detail: PGR
+- date: '2026-06-15'
+  type: Mowed
+  detail: ''
 observations: []
